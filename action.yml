@@ -1,6 +1,10 @@
 name: history-keeper-website
 
 description: To be run on non-master branch to keep historical record of non-history preserving force pushes from web frameworks.
+author: Rickard Armiento
+branding:
+  icon: git-commit
+  color: green
 
 on:
   repository_dispatch
