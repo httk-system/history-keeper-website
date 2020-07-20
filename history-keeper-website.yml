@@ -1,0 +1,85 @@
+name: history-keeper-website
+
+on:
+  repository_dispatch
+
+jobs:
+  
+  history-keeper:
+    
+    runs-on: ubuntu-20.04
+    
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+    
+    - name: Install dependecies
+      run: |
+        sudo apt-get -q -y install tidy csstidy
+        sudo npm install -g csso-cli
+        sudo npm install -g css-purge
+        sudo npm install -g rename-css-selectors
+        sudo npm install -g clean-css-cli
+    
+    - name: Cleanup latest changes from master and push
+      run: |
+        git config user.email '<>'
+        git config user.name "History keeper website bot"
+        mkdir ../keep
+        [ '.[!.]*' = "$(echo .[!.]*)" ] || mv .[!.]* ../keep/
+        [ '..?*' = "$(echo ..?*)" ] || mv ..?* ../keep/
+        mv ../keep/.git .
+        
+        echo "Copy latest files"
+        git fetch origin master
+        rm -rf *
+        git checkout origin/master -- .
+        
+        [ '../keep/.[!.]*' = "$(echo ../keep/.[!.]*)" ] || mv ../keep/.[!.]* .
+        [ '../keep/..?*' = "$(echo ../keep/..?*)" ] || mv ../keep/..?* .
+        
+        for FILE in *.html; do
+        
+          echo "Size of $FILE: $(stat -c%s $FILE)"
+          if [ "$(stat -c%s $FILE)" -eq "0" ]; then
+            continue
+          fi
+        
+          echo "Run tidy on $FILE"
+          tidy --indent 0 --indent-spaces 0 --quiet yes --show-warnings 0 --wrap 0 -m "$FILE" || [[ $? -eq 1 ]]
+          #tidy --indent 1 --indent-spaces 2 --quiet yes --show-body-only --show-errors 0 --wrap 0 -m "$FILE" || [[ $? -eq 1 ]]
+        
+          echo "Extract css from html for $FILE"
+          perl -0777 -ne 'while(m#<style[^>]*>([^<]*)</style>\n?#g){print "$1\n";}' "$FILE" > "$FILE.css"
+          perl -0777 -pe 's#<style[^>]*>([^<]*)</style>\n?##g' "$FILE" > "$FILE.2" && mv "$FILE.2" "$FILE"
+        
+          #echo "Run csstidy"
+          #csstidy index.css index.css.2 && mv index.css.2 index.css
+          
+          echo "Run csso on $FILE"
+          #csso --force-media-merge -i "$FILE.css" -o "$FILE.css.2" && mv "$FILE.css.2" "$FILE.css"
+          csso -i "$FILE.css" -o "$FILE.css.2" && mv "$FILE.css.2" "$FILE.css"
+        
+          echo "Run cleancss on $FILE"
+          cleancss -O2 --format beautify "$FILE.css" > "$FILE.css.2" && mv "$FILE.css.2" "$FILE.css"
+               
+          #echo "Run css-purge on $FILE"
+          #css-purge -i "$FILE.css" -m "$FILE" -o "$FILE.css.2" && mv "$FILE.css.2" "$FILE.css"
+        
+          echo "Re-insert css link in html in $FILE"
+          perl -0777 -pe 's#<body#<link rel="stylesheet" type="text/css" href="'$FILE.css'" /><body#g' "$FILE" > "$FILE.2" && mv "$FILE.2" "$FILE"
+    
+          #echo "Run rename-css-selectors"
+          #NODE_PATH=$(npm root -g) node -e 'const rcs = require("rename-css-selectors");
+          #  try { rcs.process.autoSync(["index.html", "**/*.css"]);
+          #  rcs.generateMappingSync("./", { overwrite: true,  });
+          #  } catch (err) {
+          #    console.error(err);
+          #  }' && mv rcs/* . && rmdir rcs && rm -f renaming_map.json
+        done
+        
+        echo "Create and push commit"
+        git add -A
+        git status
+        git commit -m "Changes $(date --rfc-2822)"
+        git push
